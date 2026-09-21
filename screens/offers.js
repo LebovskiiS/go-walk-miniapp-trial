@@ -226,7 +226,8 @@ function offerView() {
   add("Вам к выплате", order.walker_payout_kopecks != null ? fmtMoney(order.walker_payout_kopecks) : "");
 
   // до принятия ядро отдаёт только сам адрес: подъезд, квартира, домофон — после (KAN-110)
-  const where = order.address?.full_text || order.boarding_address || "";
+  // KAN-519: у передержки собаку привозит клиент — его адрес няне не нужен
+  const where = order.type === "boarding" ? order.boarding_address || "" : order.address?.full_text || "";
 
   const pets = (order.pets.length ? order.pets : order.pet ? [order.pet] : [])
     .map((pet) => {

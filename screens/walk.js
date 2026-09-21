@@ -1,4 +1,5 @@
-// Ведение прогулки из карточки заказа (KAN-504): «Вышел» → «Забрал» → «Завершить»,
+// Ведение прогулки из карточки заказа (KAN-504): «Вышел» → «Забрал» → «Завершить»
+// (у передержки — «Собаку привезли» → «Завершить», KAN-519),
 // фото, кнопки активности, просьба выйти раньше. Те же ручки /sessions/*, что у бота
 // (bot/app/backend_client.py: walk_action и соседи), и те же слова в отказах.
 //
@@ -29,11 +30,16 @@ const PHOTO_KEEP_BYTES = 1_500_000;
 
 const LIVE_LOCATION = "скрепка → «Геопозиция» → «Транслировать»";
 
+// KAN-519: к няне собаку привозит клиент — «Вышел» у передержки нет, первый шаг
+// сразу «Собаку привезли» (ядро пускает accepted → walking той же ручкой /start)
+const ARRIVED = "🏠 Собаку привезли";
+
 const fresh = (orderId) => ({
   orderId,
   busy: false,
   notice: null, // {kind: "ok" | "error", text}
   tooEarly: false, // ядро ответило order_too_early — показываем путь «попросить клиента»
+  boarding: false, // передержка — отказы и подсказки про заезд, а не про «Вышел»
   confirming: false, // «Завершить» ждёт второго нажатия
   upload: null, // {done, total} — идёт отправка фото
   report: null, // {photos, events: {type: count}} — что уже в отчёте клиенту
@@ -53,13 +59,13 @@ export function walkBlock(order) {
   if (order.status === "walking" && !walk.report) loadReport(order.id);
 
   const boarding = order.type === "boarding";
+  walk.boarding = boarding;
   const off = walk.busy ? "disabled" : "";
   let body;
-  if (order.status === "accepted") body = acceptedStep(order, off);
+  if (boarding && ["accepted", "on_the_way"].includes(order.status)) body = boardingWaitStep(order, off);
+  else if (order.status === "accepted") body = acceptedStep(order, off);
   else if (order.status === "on_the_way") {
-    body = `<p class="muted">${boarding
-      ? "Ждём собаку. Как клиент передаст её вам — начинайте."
-      : "Вы в пути. Как заберёте собаку — начинайте прогулку."}</p>
+    body = `<p class="muted">Вы в пути. Как заберёте собаку — начинайте прогулку.</p>
       <button class="btn wide" data-act="walk-step" data-step="start" ${off}>🐕 Забрал собаку, начать</button>`;
   } else body = walkingStep(boarding, off);
 
@@ -77,6 +83,17 @@ function acceptedStep(order, off) {
   return `${hints.map((hint) => `<p class="muted">${hint}</p>`).join("")}
     <button class="btn wide" data-act="walk-step" data-step="on-the-way" ${off}>🚶 Вышел</button>
     ${canAsk ? `<button class="btn ghost wide" data-act="walk-early" ${off}>🙋 Попросить клиента выйти раньше</button>` : ""}`;
+}
+
+// on_the_way у передержки — начатые старой кнопкой «Вышел» до KAN-519: тот же шаг
+function boardingWaitStep(order, off) {
+  const hints = ["Ждём собаку — клиент привезёт её к вам. Как привезёт — жмите кнопку ниже."];
+  if (order.early_start_confirmed_at) hints.push("✅ Клиент подтвердил ранний заезд.");
+  else if (order.early_start_requested_at) hints.push("🙋 Клиента спросили о раннем заезде — ждём ответа.");
+  const canAsk = walk.tooEarly && !order.early_start_requested_at && !order.early_start_confirmed_at;
+  return `${hints.map((hint) => `<p class="muted">${hint}</p>`).join("")}
+    <button class="btn wide" data-act="walk-step" data-step="start" ${off}>${ARRIVED}</button>
+    ${canAsk ? `<button class="btn ghost wide" data-act="walk-early" ${off}>🙋 Попросить клиента подтвердить ранний заезд</button>` : ""}`;
 }
 
 function walkingStep(boarding, off) {
@@ -111,7 +128,16 @@ function walkingStep(boarding, off) {
 
 const GONE = "Это действие уже недоступно: заказ могли отменить или он ушёл дальше. Карточка обновлена.";
 
+const BOARDING_EXPLAIN = {
+  order_too_early: "⏰ До заезда ещё далеко, поэтому принять собаку пока нельзя. Если клиент хочет " +
+    `привезти её раньше — попросите его подтвердить ранний заезд. Подтвердит — «${ARRIVED}» сработает сразу.`,
+  order_not_confirmed: "Клиент ещё не подтвердил передержку — принять собаку пока нельзя. " +
+    "Напишите ему в боте, если он молчит.",
+  order_not_early: `Уже можно — жмите «${ARRIVED}».`,
+};
+
 function explain(err) {
+  if (walk.boarding && BOARDING_EXPLAIN[err.code]) return BOARDING_EXPLAIN[err.code];
   switch (err.code) {
     case "order_too_early":
       return "⏰ До заказа ещё далеко, поэтому выйти прямо сейчас нельзя. Если вы уже готовы, а клиенту " +
@@ -143,7 +169,7 @@ function stepDone(step, order, result) {
   const boarding = order.type === "boarding";
   if (step === "on-the-way") {
     return boarding
-      ? "🏠 Ждём собаку. Как клиент передаст её вам — жмите «🐕 Забрал собаку, начать»."
+      ? `🏠 Ждём собаку. Как клиент привезёт её вам — жмите «${ARRIVED}».`
       : `🚶 Вы в пути. Включите трансляцию геопозиции в чате с ботом (${LIVE_LOCATION}) — клиент увидит, где вы.`;
   }
   if (step === "complete") {

@@ -150,7 +150,8 @@ function orderView() {
     add("Клиент", "ещё не подтвердил встречу");
   }
 
-  const address = order.address;
+  // KAN-519: у передержки собаку привозит клиент — его адрес няне не нужен
+  const address = order.type === "boarding" ? null : order.address;
   const where = [];
   if (address) {
     where.push(esc(address.full_text));
