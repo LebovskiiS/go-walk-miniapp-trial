@@ -45,12 +45,15 @@ button:disabled { opacity: .5; cursor: default; }
 .grow { flex: 1 1 0; }
 
 /* вкладки */
-/* вкладок станет больше, чем влезает в ширину: лента прокручивается, а не сжимается */
-.tabs { display: flex; gap: 4px; background: var(--card); border-radius: 12px; padding: 4px; margin-bottom: 12px;
-  overflow-x: auto; scrollbar-width: none; }
-.tabs::-webkit-scrollbar { display: none; }
-.tab { flex: 1 0 auto; text-align: center; padding: 9px 12px; border-radius: 9px; font-weight: 600; color: var(--muted);
-  white-space: nowrap; }
+/* Вкладок больше, чем влезает в строку, — кладём сеткой в несколько рядов, все на виду.
+   Прокручиваемая лента не годится: без полосы прокрутки не видно, что справа есть ещё,
+   а render() пересоздаёт разметку и сбрасывает прокрутку после каждого нажатия. */
+.tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 4px;
+  background: var(--card); border-radius: 12px; padding: 4px; margin-bottom: 12px; }
+/* 360 px — три колонки по 104: самая длинная подпись («📅 Расписание») входит впритык,
+   поэтому не режем её многоточием, а даём перенестись на вторую строку */
+.tab { text-align: center; padding: 9px 2px; border-radius: 9px; font-size: 13px; line-height: 1.25; font-weight: 600;
+  color: var(--muted); overflow: hidden; }
 .tab.on { background: var(--accent); color: var(--accent-text); }
 
 /* статус */
