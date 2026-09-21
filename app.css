@@ -45,8 +45,12 @@ button:disabled { opacity: .5; cursor: default; }
 .grow { flex: 1 1 0; }
 
 /* вкладки */
-.tabs { display: flex; gap: 4px; background: var(--card); border-radius: 12px; padding: 4px; margin-bottom: 12px; }
-.tab { flex: 1; text-align: center; padding: 9px 8px; border-radius: 9px; font-weight: 600; color: var(--muted); }
+/* вкладок станет больше, чем влезает в ширину: лента прокручивается, а не сжимается */
+.tabs { display: flex; gap: 4px; background: var(--card); border-radius: 12px; padding: 4px; margin-bottom: 12px;
+  overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: 1 0 auto; text-align: center; padding: 9px 12px; border-radius: 9px; font-weight: 600; color: var(--muted);
+  white-space: nowrap; }
 .tab.on { background: var(--accent); color: var(--accent-text); }
 
 /* статус */
@@ -122,3 +126,17 @@ input[type="time"] { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; b
 .spinner { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent);
   animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* кабинет (KAN-505) */
+.rating { display: flex; align-items: baseline; gap: 8px; }
+.big { font-size: 26px; line-height: 1.1; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; text-align: center; }
+.stats > div { display: flex; flex-direction: column; padding: 10px 4px; border-radius: 10px;
+  background: color-mix(in srgb, var(--muted) 10%, transparent); }
+.stats b { font-size: 20px; }
+.stats b.warn { color: var(--danger); }
+.note.flat { padding: 0; margin: 12px 0 0; }
+.stars { flex: none; color: #f5a623; letter-spacing: 1px; }
+.payout { flex: none; color: var(--ok); }
+.comment { white-space: pre-wrap; overflow-wrap: anywhere; }
+div.item { cursor: default; }
