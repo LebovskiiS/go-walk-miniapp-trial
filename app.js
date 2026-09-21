@@ -3,6 +3,7 @@
 import { boot } from "./core.js";
 import "./screens/schedule.js";
 import "./screens/orders.js";
+import "./screens/offers.js";
 import "./screens/cabinet.js";
 
 boot();

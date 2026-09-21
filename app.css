@@ -127,6 +127,15 @@ input[type="time"] { flex: 1; min-width: 0; min-height: 40px; padding: 0 10px; b
   animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* предложения заказов (KAN-506) */
+.badge.offer { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--link); }
+.badge.express { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.countdown { font-size: 13px; font-weight: 600; color: var(--danger); font-variant-numeric: tabular-nums; }
+.decide { margin: 12px 0 8px; flex-wrap: nowrap; }
+.eta-custom { flex-wrap: nowrap; }
+.eta-custom input, #offer-msg { flex: 1; min-width: 0; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--card); color-scheme: light dark; }
+#offer-msg { width: 100%; resize: vertical; font: inherit; color: inherit; }
 /* кабинет (KAN-505) */
 .rating { display: flex; align-items: baseline; gap: 8px; }
 .big { font-size: 26px; line-height: 1.1; }
