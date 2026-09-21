@@ -15,6 +15,8 @@ const SIZES = [
   ["large", "Крупные", "от 25 кг"],
 ];
 const ALL_SIZES = SIZES.map(([key]) => key);
+// KAN-515: верх шкалы отзывов с других площадок — кнопка «10+», в ядре это 11
+const EXT_PLUS = 11;
 
 // Тексты — те же, что в боте (bot/app/texts.py): правила у анкеты в боте и здесь одни
 const T = {
@@ -27,8 +29,9 @@ const T = {
   noServices: "Услуги не выбраны — новые заказы приходить не будут. Остальные настройки сохранятся.",
   needSize: "Выберите хотя бы один размер собак.",
   boardingAddressHint: "Где будут жить собаки: город, улица, дом. Клиент увидит адрес только после того, как вы примете заказ.",
-  extHint: "Сколько отзывов у вас на других площадках. Если нет — 0.",
-  needExt: "Нужно число от 0 до 100000. Если отзывов нет — поставьте 0.",
+  extHint: "Сколько отзывов у вас на других площадках (Авито, Профи, Яндекс…). Если нет — 0.",
+  // KAN-515: формулировка утверждена Сергеем 21.09, в боте она та же (texts.EXT_REVIEWS_WARNING)
+  extWarning: "⚠️ Мы верим вам на слово, но администратор может в любой момент запросить подтверждение — скриншоты отзывов. Ложная информация приводит к деактивации аккаунта.",
   zoneNotOther: "Это не адрес передержки и не трекинг прогулки — только точка, рядом с которой вы берёте заказы. По ней вас находят клиенты рядом.",
   noZone: "Рабочая зона ещё не задана — клиенты рядом вас не находят.",
   imprecise: "Не нашёл такой адрес с точностью хотя бы до улицы. Напишите полнее — город, улица и дом (например: Москва, Тверская 1) — или нажмите «Моя геопозиция». Ничего не сохранил.",
@@ -57,8 +60,12 @@ function fromProfile(profile) {
     pet_sizes: new Set(profile.pet_sizes ?? ALL_SIZES),
     boarding_address: profile.boarding_address ?? "",
     boarding_max_pets: profile.boarding_max_pets ?? null,
+    // KAN-515: шкала 0…10 и «10+» (11). Большее число осталось от свободного
+    // ввода — показываем как «10+», в ядро без правки пользователя не шлём
     claimed_external_reviews:
-      profile.claimed_external_reviews == null ? "" : String(profile.claimed_external_reviews),
+      profile.claimed_external_reviews == null
+        ? null
+        : Math.min(EXT_PLUS, profile.claimed_external_reviews),
   };
 }
 
@@ -84,9 +91,8 @@ function changes() {
     body.boarding_address = text("boarding_address") || null;
   }
   if (draft.boarding_max_pets !== base.boarding_max_pets) body.boarding_max_pets = draft.boarding_max_pets;
-  if (text("claimed_external_reviews") !== base.claimed_external_reviews) {
-    const raw = text("claimed_external_reviews");
-    body.claimed_external_reviews = raw === "" ? null : Number(raw);
+  if (draft.claimed_external_reviews !== base.claimed_external_reviews) {
+    body.claimed_external_reviews = draft.claimed_external_reviews;
   }
   return body;
 }
@@ -94,8 +100,6 @@ function changes() {
 function problem(body) {
   if (draft.pet_sizes.size === 0) return T.needSize;
   if (body.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(body.email)) return T.needEmail;
-  const ext = body.claimed_external_reviews;
-  if (ext != null && !(Number.isInteger(ext) && ext >= 0 && ext <= 100000)) return T.needExt;
   return null;
 }
 
@@ -218,6 +222,12 @@ function profileView() {
         data-size="${key}" ${disabled}>${label} · ${weight}</button>`,
   ).join("");
 
+  // KAN-515: только выбор из шкалы, свободного числа нет
+  const extChips = Array.from({ length: EXT_PLUS + 1 }, (_, n) =>
+    `<button class="chip ${draft.claimed_external_reviews === n ? "on" : ""}" data-act="profileExt"
+        data-count="${n}" ${disabled}>${n === EXT_PLUS ? "10+" : n}</button>`,
+  ).join("");
+
   const pets = draft.boarding_max_pets;
   const boarding = draft.does_boarding
     ? `<h3>Передержка</h3>
@@ -268,7 +278,9 @@ function profileView() {
 
     <h3>Отзывы с других площадок</h3>
     <section class="card">
-      ${field("claimed_external_reviews", "Количество отзывов", { hint: T.extHint, type: "number", max: 6, attrs: 'inputmode="numeric" min="0" max="100000"' })}
+      <p class="note">${esc(T.extHint)}</p>
+      <div class="chips">${extChips}</div>
+      <p class="note warn">${esc(T.extWarning)}</p>
     </section>
 
     <h3>Рабочая зона</h3>
@@ -355,6 +367,9 @@ registerScreen({
   actions: {
     profileToggle: ({ key }) => {
       draft[key] = !draft[key];
+    },
+    profileExt: ({ count }) => {
+      draft.claimed_external_reviews = Number(count);
     },
     profileSize: ({ size }) => {
       if (draft.pet_sizes.has(size)) draft.pet_sizes.delete(size);
