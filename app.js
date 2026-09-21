@@ -6,5 +6,8 @@ import "./screens/orders.js";
 import "./screens/offers.js";
 import "./screens/cabinet.js";
 import "./screens/profile.js";
+import "./screens/chats.js";
+import "./screens/learning.js";
+import "./screens/money.js";
 
 boot();

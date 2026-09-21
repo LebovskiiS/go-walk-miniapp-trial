@@ -110,7 +110,9 @@ export function onProfile(hook) {
   PROFILE_HOOKS.push(hook);
 }
 
-const currentOverlay = () => OVERLAYS.find((overlay) => overlay.isOpen());
+// сверху — последний зарегистрированный из открытых: переписка (chats.js) открывается
+// поверх карточки заказа (orders.js), «Назад» снимает её и возвращает на карточку
+const currentOverlay = () => [...OVERLAYS].reverse().find((overlay) => overlay.isOpen());
 
 // --- профиль -----------------------------------------------------------------
 

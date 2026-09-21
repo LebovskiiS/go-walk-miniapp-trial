@@ -187,10 +187,13 @@ function orderView() {
       ${lines.join("")}
     </section>
     ${walkBlock(order)}
+    ${order.client_id
+      ? `<button class="btn ghost wide" data-act="chat-with" data-client="${esc(order.client_id)}">💬 Написать клиенту</button>`
+      : ""}
     ${where.length ? `<h3>Адрес</h3><section class="card stack">${where.map((line) => `<div>${line}</div>`).join("")}</section>` : ""}
     ${pets ? `<h3>Питомцы</h3><section class="card stack">${pets}</section>` : ""}
     ${services ? `<h3>Доп. услуги</h3><section class="card">${services}</section>` : ""}
-    <p class="note">Чат с клиентом и трансляция геопозиции — в боте, раздел «📋 Заказы».</p>`;
+    <p class="note">Трансляция геопозиции — в боте.</p>`;
 }
 
 registerScreen({
