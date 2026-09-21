@@ -1,4 +1,6 @@
-// Экран «Расписание» (KAN-492): чтение и запись availability, пауза, отпуск, выключатель.
+// Экран «Расписание» (KAN-492): чтение и запись расписаний, пауза, отпуск, выключатель.
+// KAN-510: расписаний два — выгул (availability) и заезды на передержку
+// (boarding_availability, KAN-160). Редактор один, у каждого расписания свой черновик.
 import { TZ_OFFSET_HOURS } from "../config.js";
 import {
   dayFmt, esc, fmtWhen, haptic, keyFmt, onProfile, patchProfile, registerScreen, render, state,
@@ -25,7 +27,37 @@ const PRESETS = [
   ["Только выходные", fill(["sat", "sun"], [["08:00", "22:00"]])],
 ];
 
-let draft = null; // расписание в правке; пустой объект = «не задано»
+// Услуга → поле профиля и подписи. У передержки интервал значит «когда можно привезти
+// собаку», а не «когда работаю» — формулировки те же, что в боте (SCHEDULE_BOARDING_INTRO).
+const MODES = {
+  walk: {
+    field: "availability",
+    flag: "does_walk",
+    tab: "🐕 Выгул",
+    daysTitle: "Когда гуляю",
+    dayOff: "выходной",
+    save: "Сохранить расписание выгула",
+    saved: "Расписание выгула сохранено",
+    notSet: "Расписание не задано — вы в подборе в любое время. Выберите готовый вариант недели или настройте дни.",
+    allOff: "Все дни выходные — это то же, что «расписание не задано»: вы будете доступны ВСЕГДА. Чтобы не получать заказы, выключите приём заказов выше.",
+  },
+  boarding: {
+    field: "boarding_availability",
+    flag: "does_boarding",
+    tab: "🏠 Передержка",
+    daysTitle: "Когда принимаю заезды",
+    dayOff: "заезды не принимаю",
+    save: "Сохранить расписание передержки",
+    saved: "Расписание передержки сохранено",
+    notSet: "Расписание не задано — вы принимаете заезды в любое время. Выберите готовый вариант недели или настройте дни.",
+    allOff: "Ни одного окна — это то же, что «расписание не задано»: заезды принимаются ВСЕГДА. Чтобы не получать заказы на передержку, выключите приём заказов выше.",
+  },
+};
+
+let mode = "walk"; // какое расписание открыто
+const drafts = { walk: null, boarding: null }; // расписание в правке; пустой объект = «не задано»
+const seen = { walk: null, boarding: null }; // что пришло с сервера в прошлый раз
+let saving = null; // услуга, чьё расписание сейчас уходит в PATCH
 let openDay = null;
 
 // --- расписание: чистая логика --------------------------------------------------
@@ -66,7 +98,16 @@ function slotsToChips(slots) {
 }
 
 const slotsLabel = (slots) =>
-  slots?.length ? slots.map(([from, to]) => `${from}–${to}`).join(", ") : "выходной";
+  slots?.length ? slots.map(([from, to]) => `${from}–${to}`).join(", ") : MODES[mode].dayOff;
+
+// какие расписания показывать: только услуги, которые ситтер оказывает (KAN-364).
+// does_walk у старого ядра нет вовсе — отсутствие поля значит «выгул есть»
+function modesOf(profile) {
+  return Object.keys(MODES).filter((key) =>
+    key === "walk" ? profile.does_walk !== false : Boolean(profile[MODES[key].flag]));
+}
+
+const isDirty = (key) => !same(drafts[key], state.profile[MODES[key].field]);
 
 function validSlots(slots) {
   if (slots.length > 2) return "Не больше двух интервалов на день";
@@ -90,6 +131,9 @@ function statusLine(profile) {
   const snoozed = profile.snooze_until && new Date(profile.snooze_until) > new Date();
   if (!profile.is_available) return ["off", "⏸ Приём заказов выключен", "Включите, чтобы вернуться в подбор"];
   if (snoozed) return ["off", `⏸ Пауза до ${fmtWhen(profile.snooze_until)}`, "Снимется сама"];
+  // «в подборе до…» ядро считает по расписанию ВЫГУЛА; для передержки таких полей
+  // в профиле нет — статус не выдумываем, показываем только само расписание
+  if (mode === "boarding") return null;
   if (profile.available_now) {
     const until = profile.available_until ? ` до ${fmtWhen(profile.available_until)}` : "";
     return ["on", `🟢 Вы в подборе${until}`, "Клиенты видят вас в поиске"];
@@ -100,11 +144,21 @@ function statusLine(profile) {
 
 function scheduleView() {
   const profile = state.profile;
-  const [kind, title, hint] = statusLine(profile);
+  const modes = modesOf(profile);
+  if (!modes.includes(mode)) mode = modes[0] ?? "walk";
+  const labels = MODES[mode];
+  const status = statusLine(profile);
   const snoozed = profile.snooze_until && new Date(profile.snooze_until) > new Date();
-  const dirty = !same(draft, profile.availability);
-  const notSet = isEmpty(draft);
+  const dirty = isDirty(mode);
+  const notSet = isEmpty(drafts[mode]);
   const disabled = state.busy ? "disabled" : "";
+
+  // переключатель — только когда услуг две; точка — несохранённые правки на вкладке
+  const switcher = modes.length > 1
+    ? `<div class="chips">${modes.map((key) =>
+        `<button class="chip ${key === mode ? "on" : ""}" data-act="sched-mode" data-mode="${key}" ${disabled}>
+          ${MODES[key].tab}${isDirty(key) ? " •" : ""}</button>`).join("")}</div>`
+    : "";
 
   const days = DAYS.map(([day, label]) => dayRow(day, label)).join("");
   const presets = PRESETS.map(
@@ -113,14 +167,17 @@ function scheduleView() {
   ).join("");
 
   let emptyNote = "";
-  if (notSet && isEmpty(profile.availability)) {
-    emptyNote = `<p class="note">Расписание не задано — вы в подборе в любое время. Выберите готовый вариант недели или настройте дни.</p>`;
+  if (notSet && isEmpty(profile[labels.field])) {
+    emptyNote = `<p class="note">${labels.notSet}</p>`;
   } else if (notSet) {
-    emptyNote = `<p class="note warn">Все дни выходные — это то же, что «расписание не задано»: вы будете доступны ВСЕГДА. Чтобы не получать заказы, выключите приём заказов выше.</p>`;
+    emptyNote = `<p class="note warn">${labels.allOff}</p>`;
+  }
+  if (!modes.length) {
+    emptyNote = `<p class="note warn">Обе услуги выключены — расписание не действует. Включить: бот, «👤 Моя анкета» → «🧰 Услуги».</p>`;
   }
 
   return `
-    <section class="card status ${kind}"><b>${esc(title)}</b><span class="muted">${esc(hint)}</span></section>
+    ${status ? `<section class="card status ${status[0]}"><b>${esc(status[1])}</b><span class="muted">${esc(status[2])}</span></section>` : ""}
     ${state.notice ? `<p class="notice ${state.notice.kind}">${esc(state.notice.text)}</p>` : ""}
     <section class="card row">
       <div><b>Принимаю заказы</b><div class="muted">Главный выключатель</div></div>
@@ -135,20 +192,23 @@ function scheduleView() {
         <label class="btn ghost grow vacation">🏖 Отпуск до…
           <input type="date" data-change="vacation" min="${keyFmt.format(new Date())}" ${disabled}></label>
       </div>
+      ${modes.length > 1 ? `<p class="note">Выключатель, пауза и отпуск общие — действуют и на выгул, и на передержку.</p>` : ""}
     </section>
+    ${switcher}
+    ${mode === "boarding" ? `<p class="note">Это окна, когда вы принимаете заезды на передержку — в это время вы в списке нянь. Сами собаки живут у вас и вне этих окон.</p>` : ""}
     <h3>Готовая неделя</h3>
     <div class="chips">${presets}</div>
-    <h3>По дням <span class="muted">· время московское</span></h3>
+    <h3>${labels.daysTitle} <span class="muted">· время московское</span></h3>
     ${emptyNote}
     <section class="card days">${days}</section>
     <div class="savebar ${dirty ? "show" : ""}">
       <button class="btn ghost" data-act="reset" ${disabled}>Отменить</button>
-      <button class="btn grow" data-act="save" ${disabled}>${state.busy ? "Сохраняю…" : "Сохранить расписание"}</button>
+      <button class="btn grow" data-act="save" ${disabled}>${state.busy ? "Сохраняю…" : labels.save}</button>
     </div>`;
 }
 
 function dayRow(day, label) {
-  const slots = draft[day] || [];
+  const slots = drafts[mode][day] || [];
   const chips = slotsToChips(slots);
   const open = openDay === day;
   const chipButtons = CHIPS.map(
@@ -186,16 +246,23 @@ function dayRow(day, label) {
 }
 
 function setDay(day, slots) {
-  const next = { ...draft };
+  const next = { ...drafts[mode] };
   if (slots.length) next[day] = slots;
   else delete next[day];
-  draft = next;
+  drafts[mode] = next;
   state.notice = null;
 }
 
-// черновик пересобирается из профиля на каждом applyProfile (загрузка и любой PATCH)
+// applyProfile приходит после загрузки и после ЛЮБОГО PATCH (пауза, выключатель,
+// сохранение соседнего расписания). Черновик пересобираем, только если в нём нет
+// несохранённых правок или это его только что сохранили, — иначе правки одной
+// вкладки пропадали бы при сохранении другой.
 onProfile((profile) => {
-  draft = normalize(profile.availability);
+  for (const key of Object.keys(MODES)) {
+    const server = normalize(profile[MODES[key].field]);
+    if (drafts[key] === null || saving === key || same(drafts[key], seen[key])) drafts[key] = server;
+    seen[key] = server;
+  }
 });
 
 registerScreen({
@@ -213,13 +280,18 @@ registerScreen({
       return patchProfile({ snooze_until: until.toISOString() }, "Пауза до завтра, 06:00");
     },
     unpause: () => patchProfile({ snooze_until: null }, "Пауза снята"),
+    "sched-mode": ({ mode: next }) => {
+      mode = next;
+      openDay = null;
+      state.notice = null;
+    },
     preset: ({ index }) => {
-      draft = normalize(PRESETS[Number(index)][1]);
+      drafts[mode] = normalize(PRESETS[Number(index)][1]);
       openDay = null;
       state.notice = null;
     },
     chip: ({ day, chip }) => {
-      const keys = slotsToChips(draft[day] || []) || new Set();
+      const keys = slotsToChips(drafts[mode][day] || []) || new Set();
       if (keys.has(chip)) keys.delete(chip);
       else keys.add(chip);
       setDay(day, chipsToSlots(keys));
@@ -227,19 +299,20 @@ registerScreen({
     "open-day": ({ day }) => {
       openDay = openDay === day ? null : day;
     },
-    "add-interval": ({ day }) => setDay(day, [...(draft[day] || []), ["", ""]]),
+    "add-interval": ({ day }) => setDay(day, [...(drafts[mode][day] || []), ["", ""]]),
     "del-interval": ({ day, index }) =>
-      setDay(day, (draft[day] || []).filter((_, i) => i !== Number(index))),
+      setDay(day, (drafts[mode][day] || []).filter((_, i) => i !== Number(index))),
     copy: ({ day, to }) => {
-      const slots = draft[day] || [];
+      const slots = drafts[mode][day] || [];
       for (const target of to === "work" ? WORKDAYS : ALL_DAYS) setDay(target, slots);
     },
     reset: () => {
-      draft = normalize(state.profile.availability);
+      drafts[mode] = normalize(state.profile[MODES[mode].field]);
       state.notice = null;
     },
     save: () => {
       // интервалы дня — по возрастанию: «вечер» можно вписать раньше «утра»
+      const draft = drafts[mode];
       for (const day of Object.keys(draft)) {
         draft[day] = [...draft[day]].sort((a, b) => a[0].localeCompare(b[0]));
       }
@@ -252,7 +325,11 @@ registerScreen({
           return undefined;
         }
       }
-      return patchProfile({ availability: normalize(draft) }, "Расписание сохранено");
+      // в PATCH уходит ТОЛЬКО открытое расписание: правки соседней вкладки ждут своего «Сохранить»
+      saving = mode;
+      return patchProfile({ [MODES[mode].field]: normalize(draft) }, MODES[mode].saved).finally(() => {
+        saving = null;
+      });
     },
   },
   changes: {
@@ -265,7 +342,7 @@ registerScreen({
     },
     time: (input) => {
       const { day, index, edge } = input.dataset;
-      const slots = (draft[day] || [["", ""]]).map(([from, to]) => [from, to]);
+      const slots = (drafts[mode][day] || [["", ""]]).map(([from, to]) => [from, to]);
       slots[Number(index)][Number(edge)] = input.value;
       setDay(day, slots);
       render();
