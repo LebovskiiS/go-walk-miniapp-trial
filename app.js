@@ -9,5 +9,6 @@ import "./screens/profile.js";
 import "./screens/chats.js";
 import "./screens/learning.js";
 import "./screens/money.js";
+import "./screens/photos.js";
 
 boot();

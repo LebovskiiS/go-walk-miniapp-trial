@@ -238,6 +238,11 @@ function profileView() {
 
   return `
     ${noticeHtml(notice)}
+    <button class="card item-link" data-act="photosOpen">
+      <span><b>🖼 Фото и документы</b>
+        <span class="muted">${esc(photosHint(profile))}</span></span>
+      <span class="chev">›</span>
+    </button>
     <h3>О вас</h3>
     <section class="card stack">
       ${locked("Имя", me.name, T.nameLocked)}
@@ -283,6 +288,14 @@ function profileView() {
       <button class="btn ghost" data-act="profileReset" ${disabled}>Отменить</button>
       <button class="btn grow" data-act="profileSave" ${disabled}>${busy ? "Сохраняю…" : "Сохранить анкету"}</button>
     </div>`;
+}
+
+// строка под входом в «Фото и документы» (KAN-508): что там требует внимания
+function photosHint(profile) {
+  if (profile.avatar_reject_reason && !profile.avatar_pending) return "Фото профиля не приняли — загрузите другое";
+  if (profile.avatar_pending) return "Фото профиля на проверке";
+  if (!profile.has_avatar) return "Фото профиля нет — у клиентов инициалы";
+  return "Фото профиля, галерея «Мои фото», документы";
 }
 
 // --- действия -------------------------------------------------------------------------

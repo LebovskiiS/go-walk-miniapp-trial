@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <meta name="robots" content="noindex, nofollow">
   <!-- Проба (KAN-490): отдельного веб-сервера нет, поэтому политика — метатегом.
-       Скрипты — свои и SDK Telegram; запросы — только в наш API. -->
+       Скрипты — свои и SDK Telegram; запросы — только в наш API; картинки —
+       presigned-ссылки нашего S3 (path-style, хост один; KAN-508). -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; connect-src https://api.go-lab.online; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+        content="default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; connect-src https://api.go-lab.online; img-src 'self' data: https://s3.ru-7.storage.selcloud.ru; base-uri 'none'; form-action 'none'">
   <title>Кабинет ситтера</title>
   <link rel="stylesheet" href="app.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
