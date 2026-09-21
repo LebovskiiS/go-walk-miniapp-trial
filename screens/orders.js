@@ -1,15 +1,18 @@
-// Экран «Заказы» (KAN-492): три списка и карточка заказа поверх вкладок. Только просмотр.
+// Экран «Заказы» (KAN-492): три списка и карточка заказа поверх вкладок. Активный заказ
+// ведётся прямо из карточки — блок шагов прогулки живёт в walk.js (KAN-504).
 import { api } from "../api.js";
 import {
   esc, fetchPage, fmtMoney, fmtWhen, registerOverlay, registerScreen, render, shortId, SPINNER,
   stateBlock,
 } from "../core.js";
+import { initWalk, walkBlock } from "./walk.js";
 
 const ORDER_TABS = [
   ["active", "Активные"],
   ["completed", "Завершённые"],
   ["cancelled", "Отменённые"],
 ];
+const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const ACTIVE_STATUSES = ["accepted", "on_the_way", "walking"];
 
 const TYPE_LABEL = { urgent: "⚡ Экспресс-выгул", booked: "🐕 Выгул", boarding: "🏠 Передержка" };
@@ -70,6 +73,17 @@ export async function openOrder(id, { quiet = false } = {}) {
   render();
 }
 
+// После шага прогулки: карточка — из ядра, а список за ней устарел (статус сменился,
+// завершённый заказ уехал из «Активных») — перечитываем и его.
+async function refreshOrder() {
+  if (!card) return;
+  const before = card.data?.status;
+  await openOrder(card.id, { quiet: true });
+  if (card?.data && card.data.status !== before) loadOrders(true, true);
+}
+
+initWalk({ getOrder: () => card?.data ?? null, refreshOrder });
+
 // --- отрисовка -----------------------------------------------------------------
 
 function ordersView() {
@@ -91,7 +105,7 @@ function ordersView() {
         ${box.loading ? "Загружаю…" : "Показать ещё"}</button>` : ""}`;
   }
   return `<div class="chips">${tabs}</div>${body}
-    <p class="note">Вести прогулку («Вышел», «Забрал», «Завершить», фото) пока нужно в боте.</p>`;
+    <p class="note">Вести прогулку («Вышел», «Забрал», «Завершить», фото) — в карточке активного заказа.</p>`;
 }
 
 function orderWhen(order) {
@@ -172,17 +186,21 @@ function orderView() {
       <div class="muted">${shortId(order.id)}</div>
       ${lines.join("")}
     </section>
+    ${walkBlock(order)}
     ${where.length ? `<h3>Адрес</h3><section class="card stack">${where.map((line) => `<div>${line}</div>`).join("")}</section>` : ""}
     ${pets ? `<h3>Питомцы</h3><section class="card stack">${pets}</section>` : ""}
     ${services ? `<h3>Доп. услуги</h3><section class="card">${services}</section>` : ""}
-    <p class="note">Действия по заказу — в боте, раздел «📋 Заказы».</p>`;
+    <p class="note">Чат с клиентом и трансляция геопозиции — в боте, раздел «📋 Заказы».</p>`;
 }
 
 registerScreen({
   key: "orders",
   label: "📋 Заказы",
   view: ordersView,
-  open: () => {
+  open: (params) => {
+    // ?order=<id> из бота; id уходит в путь запроса, поэтому пускаем только UUID
+    const linked = params?.get("order");
+    if (linked && UUID.test(linked)) openOrder(linked);
     if (box.loading) return undefined;
     // «Активные» перечитываем при каждом входе: заказ могли принять на другой вкладке или в боте
     if (box.tab === "active") return loadOrders(true, true);

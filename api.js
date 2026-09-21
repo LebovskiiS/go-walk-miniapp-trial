@@ -60,11 +60,13 @@ export async function api(method, path, body) {
   for (let attempt = 0; ; attempt++) {
     if (!accessToken) await login();
     const headers = { Authorization: "Bearer " + accessToken };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    // FormData (фото) уходит как есть: Content-Type с boundary браузер ставит сам
+    const isForm = body instanceof FormData;
+    if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     const resp = await send(path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined || isForm ? body : JSON.stringify(body),
     });
     // access живёт 15 минут: один раз входим заново и повторяем запрос
     if (resp.status === 401 && attempt === 0) {

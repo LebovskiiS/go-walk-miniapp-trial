@@ -93,7 +93,8 @@ export function registerChanges(changes) {
   Object.assign(CHANGES, changes);
 }
 
-// {key, label, view, open?, actions?, changes?}; open() зовётся при переходе на вкладку
+// {key, label, view, open?, actions?, changes?}; open() зовётся при переходе на вкладку,
+// open(params) — при входе по ссылке (params — URLSearchParams адреса)
 export function registerScreen(screen) {
   SCREENS.push(screen);
   if (screen.actions) registerActions(screen.actions);
@@ -192,6 +193,16 @@ root.addEventListener("change", (event) => {
   if (input) CHANGES[input.dataset.change]?.(input);
 });
 
+// Ссылки из бота (KAN-494): ?tab=<ключ экрана> открывает вкладку; остальные параметры
+// разбирает сам экран в open(params) — «Заказы» по ?order=<id> сразу открывают карточку.
+function applyLink() {
+  const params = new URLSearchParams(location.search);
+  const screen = SCREENS.find(({ key }) => key === params.get("tab"));
+  if (!screen) return;
+  state.tab = screen.key;
+  screen.open?.(params);
+}
+
 export async function boot() {
   state.tab = SCREENS[0].key;
   tg?.ready();
@@ -207,6 +218,7 @@ export async function boot() {
   }
   try {
     applyProfile(await api("GET", "/walker/me"));
+    if (state.screen === "main") applyLink();
   } catch (err) {
     if (err instanceof ApiError && err.code === "walker_profile_not_found") {
       state.screen = "gate";
