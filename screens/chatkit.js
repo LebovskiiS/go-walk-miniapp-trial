@@ -20,6 +20,12 @@ document.addEventListener("input", (event) => {
   if (field) drafts[field.dataset.draft] = field.value;
 });
 
+// Тап по «Отправить» не должен снимать фокус с поля (KAN-522): иначе iOS прячет
+// клавиатуру и сбрасывает прокрутку. click при этом приходит как обычно.
+document.addEventListener("mousedown", (event) => {
+  if (event.target.closest?.(".composer .send")) event.preventDefault();
+});
+
 export const draft = (key) => drafts[key] || "";
 export const clearDraft = (key) => delete drafts[key];
 

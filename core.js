@@ -152,7 +152,45 @@ export function render() {
   const showBack = state.screen === "main" && currentOverlay() !== undefined;
   if (showBack) tg?.BackButton?.show();
   else tg?.BackButton?.hide();
-  root.innerHTML = view();
+  const html = view();
+  if (!keepComposer(html)) root.innerHTML = html;
+}
+
+// Поле ввода переписки (.composer) не пересоздаём (KAN-522): innerHTML убивает поле с
+// фокусом, iOS прячет клавиатуру, окно WebView вырастает, и прокрутка улетает в начало
+// уже после нашего scrollTo(низ). Если и на экране, и в новой разметке та же переписка
+// (section > .composer с тем же data-draft), меняем только соседей поля, а его самого
+// сверяем по атрибутам: disabled у кнопок и текст (clearDraft после отправки).
+// Ищем так: единственный ребёнок — <section>, среди её детей — .composer.
+function composerOf(parent) {
+  const section = parent.children?.length === 1 ? parent.firstElementChild : null;
+  if (section?.tagName !== "SECTION") return null;
+  return [...section.children].find((node) => node.classList.contains("composer")) ?? null;
+}
+
+function keepComposer(html) {
+  const live = composerOf(root);
+  if (!live) return false;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  const fresh = composerOf(tpl.content);
+  const key = (node) => node.querySelector("textarea")?.dataset.draft;
+  if (!fresh || key(fresh) !== key(live)) return false;
+  const section = live.parentElement;
+  const next = fresh.parentElement;
+  section.className = next.className;
+  while (live.previousSibling) live.previousSibling.remove();
+  while (live.nextSibling) live.nextSibling.remove();
+  while (next.firstChild !== fresh) live.before(next.firstChild);
+  while (fresh.nextSibling) section.append(fresh.nextSibling);
+  const liveButtons = live.querySelectorAll("button");
+  fresh.querySelectorAll("button").forEach((button, i) => {
+    if (liveButtons[i]) liveButtons[i].disabled = button.disabled;
+  });
+  const field = live.querySelector("textarea");
+  const text = fresh.querySelector("textarea").value;
+  if (field.value !== text) field.value = text;
+  return true;
 }
 
 function view() {
