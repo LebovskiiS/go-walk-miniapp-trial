@@ -5,5 +5,6 @@ import "./screens/schedule.js";
 import "./screens/orders.js";
 import "./screens/offers.js";
 import "./screens/cabinet.js";
+import "./screens/profile.js";
 
 boot();

@@ -160,3 +160,15 @@ div.item { cursor: default; }
 .btn.danger { background: var(--danger); color: #fff; }
 /* поле выбора фото вне #app: не display:none — старый iOS WebView не открывает галерею у скрытого поля */
 .offscreen { position: fixed; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+/* анкета (KAN-507) */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field + .field { padding-top: 10px; border-top: 1px solid var(--line); }
+.field-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.field .note { padding: 0; }
+.input { width: 100%; min-height: 42px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); color: var(--text); font: inherit; color-scheme: light dark; }
+textarea.input { resize: vertical; line-height: 1.4; }
+.stepper { display: flex; align-items: center; gap: 12px; }
+.stepper .btn { min-height: 38px; width: 42px; padding: 0; font-size: 20px; }
+.stepper b { min-width: 20px; text-align: center; }
