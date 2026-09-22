@@ -198,12 +198,11 @@ function view() {
     case "loading":
       return SPINNER;
     case "outside":
-      return stateBlock("🐾", "Кабинет ситтера открывается внутри Telegram",
-        "Откройте бота @go_walk_sitter_bot и перейдите по ссылке на кабинет.");
+      return stateBlock("🐾", shell.outsideTitle, shell.outsideText);
     case "gate":
-      return stateBlock("📋", "Кабинет пока недоступен", state.message, "close", "Закрыть");
+      return stateBlock(shell.gateIcon, shell.gateTitle, state.message, "close", "Закрыть");
     case "fatal":
-      return stateBlock("⚠️", "Не получилось открыть кабинет", state.message, "reload", "Повторить");
+      return stateBlock("⚠️", shell.fatalTitle, state.message, "reload", "Повторить");
     default:
       return currentOverlay()?.view() ?? mainView();
   }
@@ -243,7 +242,29 @@ function applyLink() {
   screen.open?.(params);
 }
 
-export async function boot() {
+// Оболочка одна на кабинет ситтера и админку (KAN-524): что грузить при старте и
+// какими словами объяснять «вне Telegram / не пускаем / сломалось» — параметры
+// boot(); по умолчанию — кабинет ситтера. load() обязан выставить state.screen.
+const shell = {
+  outsideTitle: "Кабинет ситтера открывается внутри Telegram",
+  outsideText: "Откройте бота @go_walk_sitter_bot и перейдите по ссылке на кабинет.",
+  gateIcon: "📋",
+  gateTitle: "Кабинет пока недоступен",
+  fatalTitle: "Не получилось открыть кабинет",
+  load: async () => applyProfile(await api("GET", "/walker/me")),
+  // ошибка load(): вернуть true, если экран уже выставлен (gate), иначе — fatal
+  onLoadError: (err) => {
+    if (err instanceof ApiError && err.code === "walker_profile_not_found") {
+      state.screen = "gate";
+      state.message = "Анкета ситтера ещё не заполнена. Заполните её в боте — и возвращайтесь.";
+      return true;
+    }
+    return false;
+  },
+};
+
+export async function boot(options = {}) {
+  Object.assign(shell, options);
   state.tab = SCREENS[0].key;
   tg?.ready();
   tg?.expand();
@@ -257,13 +278,10 @@ export async function boot() {
     return render();
   }
   try {
-    applyProfile(await api("GET", "/walker/me"));
+    await shell.load();
     if (state.screen === "main") applyLink();
   } catch (err) {
-    if (err instanceof ApiError && err.code === "walker_profile_not_found") {
-      state.screen = "gate";
-      state.message = "Анкета ситтера ещё не заполнена. Заполните её в боте — и возвращайтесь.";
-    } else {
+    if (!shell.onLoadError(err)) {
       state.screen = "fatal";
       state.message = err.message;
     }
