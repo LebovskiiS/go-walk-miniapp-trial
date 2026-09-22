@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="robots" content="noindex, nofollow">
+  <!-- Мини-апп админа (KAN-524): та же статика и политика, что у кабинета ситтера
+       (../index.html), открывается из @bosupport_bot. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; connect-src https://api.go-lab.online; img-src 'self' data: https://s3.ru-7.storage.selcloud.ru; base-uri 'none'; form-action 'none'">
+  <title>Админка go_walk</title>
+  <link rel="stylesheet" href="../app.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <main id="app"><div class="state"><div class="spinner"></div></div></main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
