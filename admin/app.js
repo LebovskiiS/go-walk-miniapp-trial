@@ -27,21 +27,26 @@ const QUEUES = [
   ["review_photos", "Фото в отзывах"],
 ];
 
-// ModerationQueueCount: {waiting, new_since} — сколько ждёт и сколько из них за окно сводки
+// Окно «новое за период»: сутки назад. Ручке `since` обязателен (со смещением
+// зоны — toISOString даёт …Z), `until` по умолчанию «сейчас».
+const DAY_MS = 24 * 60 * 60 * 1000;
+const sinceParam = () => "?since=" + encodeURIComponent(new Date(Date.now() - DAY_MS).toISOString());
+
+// ModerationQueueCount: {waiting, new_since} — сколько ждёт и сколько из них за сутки
 function summaryView(summary) {
   const rows = QUEUES.map(([key, label]) => {
     const { waiting = 0, new_since: fresh = 0 } = summary[key] ?? {};
     return `<div class="card row"><span>${esc(label)}</span>
       <span class="badge ${waiting ? "offer" : ""}">${esc(waiting)}${fresh ? ` · +${esc(fresh)}` : ""}</span></div>`;
   }).join("");
-  return `<section class="list"><h2>Очереди модерации</h2>${rows}
+  return `<section class="list"><h2>Очереди модерации</h2><p class="muted">ждёт · +новых за сутки</p>${rows}
     <button class="btn ghost wide" data-act="reload">Обновить</button></section>`;
 }
 
 async function load() {
   root.innerHTML = `<div class="state"><div class="spinner"></div></div>`;
   try {
-    root.innerHTML = summaryView(await api("GET", "/admin/moderation/summary"));
+    root.innerHTML = summaryView(await api("GET", "/admin/moderation/summary" + sinceParam()));
   } catch (err) {
     if (err instanceof ApiError && err.status === 403) {
       root.innerHTML = stateBlock("🔒", "Нет доступа", "Админка доступна только администраторам go_walk.", "close", "Закрыть");
