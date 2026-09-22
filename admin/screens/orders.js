@@ -9,10 +9,10 @@ import {
   ORDER_STATUS, ORDER_TYPE, PAYMENT, askForm, kv, label, listState, money, notice, onAskCancel, reasonOf, when, who,
 } from "../kit.js";
 
-const ACTIVE = ["proposed", "dispatching", "accepted", "on_the_way", "walking"];
-const FILTERS = [["active", "Активные"], ...Object.entries(ORDER_STATUS), ["all", "Все"]];
+const FILTERS = [["active", "Активные"], ["completed", "Завершённые"], ["cancelled", "Отменённые"]];
 const CAN_CANCEL = new Set(["proposed", "dispatching", "accepted", "on_the_way", "walking"]);
 const CAN_COMPLETE = new Set(["accepted", "on_the_way", "walking"]);
+const FINISHED = ["completed", "cancelled"];
 
 const orders = { filter: "active", userId: null, items: [], loading: false, error: null, loaded: false };
 let card = null; // {order, loading, error, busy, notice, ask}
@@ -22,14 +22,16 @@ async function load() {
   orders.error = null;
   render();
   try {
+    // без status ядро отдаёт активные (proposed…walking) — как «Активные заказы» в боте
     const user = orders.userId ? `&user_id=${orders.userId}` : "";
-    if (orders.filter === "active" && !orders.userId) {
-      // у ручки один status на запрос — активные собираем пятью запросами
-      const pages = await Promise.all(ACTIVE.map((s) => api("GET", `/admin/orders?status=${s}&limit=50`)));
-      orders.items = pages.flat().sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
+    if (orders.userId) {
+      // у человека — всё: активные одним запросом + завершённые и отменённые
+      const pages = await Promise.all(["", ...FINISHED.map((s) => `&status=${s}`)].map((q) => api("GET", `/admin/orders?limit=100${q}${user}`)));
+      orders.items = pages.flat().sort((a, b) => b.scheduled_at.localeCompare(a.scheduled_at));
     } else {
-      const status = orders.filter === "active" || orders.filter === "all" ? "" : `&status=${orders.filter}`;
-      orders.items = await api("GET", `/admin/orders?limit=100${status}${user}`);
+      const status = orders.filter === "active" ? "" : `&status=${orders.filter}`;
+      orders.items = await api("GET", `/admin/orders?limit=100${status}`);
+      if (orders.filter !== "active") orders.items.sort((a, b) => b.scheduled_at.localeCompare(a.scheduled_at));
     }
     orders.loaded = true;
   } catch (err) {
@@ -42,7 +44,7 @@ async function load() {
 // из карточки пользователя: «📦 Заказы человека»
 export async function showOrdersOf(userId) {
   orders.userId = userId;
-  orders.filter = "all";
+  orders.filter = "active";
   await load();
 }
 

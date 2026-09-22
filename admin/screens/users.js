@@ -269,10 +269,11 @@ onAskCancel(() => {
   if (card) card.ask = null;
 });
 
-// Enter в поле поиска — то же, что «Найти»
+// Enter в поле поиска — то же, что «Найти» (значение берём из поля: change ещё не было)
 document.getElementById("app").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && event.target.dataset?.change === "user-q") {
     event.preventDefault();
+    users.q = event.target.value;
     search();
   }
 });

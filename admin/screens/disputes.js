@@ -21,7 +21,7 @@ async function load() {
   render();
   try {
     const status = disputes.filter === "open" ? "&status=open" : "";
-    disputes.items = await api("GET", `/admin/disputes?limit=100${status}`);
+    disputes.items = await api("GET", `/admin/disputes?limit=50${status}`); // le=50 у ручки
     disputes.loaded = true;
   } catch (err) {
     disputes.error = err.message;

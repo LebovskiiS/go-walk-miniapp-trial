@@ -52,7 +52,7 @@ async function loadQueue() {
 }
 
 function queueView() {
-  const empty = listState(queue, "Очередь пуста — новых анкет нет.");
+  const empty = listState({ ...queue, error: queue.loaded ? null : queue.error }, "Очередь пуста — новых анкет нет.");
   const rows = empty
     ? empty
     : queue.items
@@ -76,7 +76,8 @@ function queueView() {
         )
         .join("")}`
     : "";
-  return `<section class="list"><h2>Заявки на проверку</h2>${rows}${docRows}</section>`;
+  const err = queue.loaded && queue.error ? `<div class="notice error">${esc(queue.error)}</div>` : "";
+  return `<section class="list"><h2>Заявки на проверку</h2>${err}${docAskForm(false)}${rows}${docRows}</section>`;
 }
 
 const docButtons = (docId, walkerId, busy) => `<div class="chips tight">
@@ -160,6 +161,7 @@ function cardView() {
     <div class="card"><div class="field-label">Категория</div>${cats}
       ${hasCertificate() ? "" : `<p class="muted">Кинолог — только при загруженном сертификате</p>`}</div>
     <div class="card stack"><div class="field-label">Документы</div>${c.error ? `<div class="notice error">${esc(c.error)}</div>` : docs}</div>
+    ${docAskForm(c.busy)}
     ${verdict}
   </section>`;
 }
@@ -180,16 +182,55 @@ async function act(fn, ok) {
   render();
 }
 
+// Решение по документу: «принят» — сразу, «перезалить»/«отклонён» — с заметкой,
+// как в боте (DOC_ASK_NOTE). Ситтера ядро не уведомляет (бот слал сам токеном
+// основного бота) — шлём тот же текст сообщением по заявке.
+const DOC_ASK = {
+  reupload: "Что не так со снимком? Ситтер получит этот текст вместе с просьбой прислать новое фото.",
+  rejected: "Почему документ не принят? Ситтер получит этот текст.",
+};
+let docAsk = null; // {doc, walker, decision} — форма заметки на экране очереди/карточки
+
+function docNotice(docType, decision, note) {
+  const caption = label(DOC_TYPE, docType);
+  const reason = note ? `\nКомментарий проверяющего: ${note}` : "";
+  if (decision === "approved") return `✅ Документ «${caption}» проверен и принят.`;
+  if (decision === "reupload") return `🔄 Документ «${caption}» нужно прислать заново.${reason}`;
+  return `❌ Документ «${caption}» не принят.${reason}\nМожно загрузить другой.`;
+}
+
+async function applyDocReview({ doc, walker, decision }, note) {
+  const reviewed = await api("POST", `/walker/documents/${doc}/review`, { decision, note });
+  try {
+    await api("POST", `/admin/applications/${walker}/messages`, { text: docNotice(reviewed.doc_type, decision, note) });
+  } catch {
+    // решение записано; ситтер увидит статус документа в «Моя анкета»
+  }
+}
+
 async function reviewDocument({ doc, walker, decision }) {
-  const run = () => api("POST", `/walker/documents/${doc}/review`, { decision, note: null });
+  if (decision !== "approved") {
+    docAsk = { doc, walker, decision };
+    clearDraft("doc-note");
+    render(); // async-обработчик перерисовывает сам
+    return;
+  }
+  await finishDocReview({ doc, walker, decision }, null);
+}
+
+async function finishDocReview(target, note) {
+  const done = `Документ: ${label(DOC_REVIEW, target.decision)}`;
   if (card) {
     await act(async () => {
-      await run();
-      card.documents = await api("GET", `/walker/${walker}/documents`);
-    }, `Документ: ${label(DOC_REVIEW, decision)}`);
+      await applyDocReview(target, note);
+      docAsk = null;
+      card.documents = await api("GET", `/walker/${target.walker}/documents`);
+    }, done);
   } else {
+    queue.error = null;
     try {
-      await run();
+      await applyDocReview(target, note);
+      docAsk = null;
       haptic("success");
     } catch (err) {
       queue.error = err.message;
@@ -198,6 +239,22 @@ async function reviewDocument({ doc, walker, decision }) {
     await loadQueue();
   }
 }
+
+const docAskForm = (busy) =>
+  docAsk
+    ? askForm(
+        {
+          key: "doc-note",
+          title: docAsk.decision === "reupload" ? "Документ: прислать заново" : "Документ: не принят",
+          hint: DOC_ASK[docAsk.decision],
+          placeholder: "Заметка для ситтера",
+          act: "doc-review-go",
+          submit: docAsk.decision === "reupload" ? "🔄 Перезалить" : "❌ Отклонить",
+          danger: docAsk.decision === "rejected",
+        },
+        busy,
+      )
+    : "";
 
 async function setCategory({ category }) {
   await act(async () => {
@@ -354,6 +411,16 @@ registerActions({
   ...KIT_ACTIONS,
   "appl-open": ({ id }) => openCard(id),
   "doc-review": reviewDocument,
+  "doc-review-go": () => {
+    const note = draft("doc-note").trim();
+    if (!note) {
+      const msg = { kind: "error", text: "Напишите заметку — ситтер должен понять, что исправить." };
+      if (card) card.notice = msg;
+      else queue.error = msg.text;
+      return;
+    }
+    return finishDocReview(docAsk, note);
+  },
   "appl-category": setCategory,
   "appl-verdict": ({ verdict }) => {
     card.verdict = verdict;
@@ -367,6 +434,7 @@ registerActions({
 
 onAskCancel(() => {
   if (card) card.verdict = null;
+  docAsk = null;
 });
 
 registerScreen({ key: "applications", label: "Заявки", view: queueView, open: loadQueue });

@@ -15,10 +15,10 @@ import { shrink } from "../../screens/walk.js";
 import { USER_KIND, label, listState, who } from "../kit.js";
 
 const MAX_PHOTOS = 5;
-const PAGE = 50;
+const PAGE = 200; // ручка отдаёт последние N (desc → reversed), не первые
 
 const list = { items: [], loading: false, error: null, loaded: false };
-let chat = null; // {conv, items, pending, loading, error, busy, notice, closing}
+let chat = null; // {conv, items, pending, loading, error, busy, notice, closing, archived}
 
 // --- список --------------------------------------------------------------------
 
@@ -71,7 +71,8 @@ function toItem(m) {
 
 async function loadChat() {
   const userId = chat.conv.user_id;
-  const messages = await api("GET", `/admin/support/conversations/${userId}/messages?limit=${PAGE}`);
+  const archived = chat.archived ? "&archived=true" : "";
+  const messages = await api("GET", `/admin/support/conversations/${userId}/messages?limit=${PAGE}${archived}`);
   if (!chat || chat.conv.user_id !== userId) return false;
   const last = (items) => (items.length ? items[items.length - 1].id : null);
   const changed = messages.length !== chat.items.length || last(messages) !== last(chat.items);
@@ -85,7 +86,7 @@ const chatPoll = poller(POLL_OPEN_MS, () => chat !== null, async () => {
 
 async function openChat(userId) {
   const conv = list.items.find((c) => c.user_id === userId) ?? { user_id: userId, user_name: null, user_kind: null };
-  chat = { conv, items: [], pending: [], loading: true, error: null, busy: false, notice: null, closing: false };
+  chat = { conv, items: [], pending: [], loading: true, error: null, busy: false, notice: null, closing: false, archived: false };
   clearDraft(DRAFT); // черновик — на один диалог
   render();
   try {
@@ -189,13 +190,18 @@ function chatView() {
         <div class="row gap"><button class="btn" data-act="support-close-yes" ${c.busy ? "disabled" : ""}>Завершить</button>
         <button class="btn ghost" data-act="support-close-no">Отмена</button></div></div>`
     : "";
+  const off = c.busy || c.loading ? "disabled" : "";
+  // архив (KAN-360): прошлые диалоги с этим человеком, только чтение
+  const head = c.archived
+    ? `<button class="btn ghost small" data-act="support-archive" data-on="0" ${off}>⬅️ К текущему</button>`
+    : `<button class="btn ghost small" data-act="support-archive" data-on="1" ${off}>🗂 Прошлые</button>
+       <button class="btn ghost small" data-act="support-close-ask" ${off}>Завершить</button>`;
   return `<section class="chat">
-    <div class="chat-head"><div><b>${esc(title)}</b><div class="chat-order">${esc(sub)}</div></div>
-      <button class="btn ghost small" data-act="support-close-ask" ${c.busy || c.loading ? "disabled" : ""}>Завершить</button></div>
+    <div class="chat-head"><div><b>${esc(title)}</b><div class="chat-order">${esc(c.archived ? "прошлые диалоги" : sub)}</div></div>${head}</div>
     ${closing}
-    ${body}
+    ${c.archived && !c.loading && !c.items.length ? `<p class="muted center">Прошлых диалогов с этим человеком нет.</p>` : body}
     ${c.notice ? `<div class="notice error">${esc(c.notice)}</div>` : ""}
-    ${composer({ key: DRAFT, placeholder: "Ответ от поддержки", busy: c.busy || c.loading })}
+    ${c.archived ? "" : composer({ key: DRAFT, placeholder: "Ответ от поддержки", busy: c.busy || c.loading })}
   </section>`;
 }
 
@@ -212,6 +218,19 @@ registerActions({
     chat.closing = false;
   },
   "support-close-yes": closeConversation,
+  "support-archive": async ({ on }) => {
+    chat.archived = on === "1";
+    chat.loading = true;
+    chat.items = [];
+    render();
+    try {
+      await loadChat();
+    } catch (err) {
+      chat.error = err.message;
+    }
+    chat.loading = false;
+    rerender("bottom");
+  },
   "support-send": () => sendText(),
   "support-pick": () => pick(),
 });

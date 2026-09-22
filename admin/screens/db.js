@@ -84,11 +84,12 @@ registerOverlay({
 });
 
 registerChanges({
-  "db-q": (input) => {
-    if (table) {
-      table.q = input.value;
-      render();
-    }
+  // фильтр применяем по Enter/уходу из поля (change), не на каждую букву — иначе
+  // перерисовка выбивает клавиатуру
+  "db-q": (input, kind) => {
+    if (!table) return;
+    table.q = input.value;
+    if (kind === "change") render();
   },
 });
 

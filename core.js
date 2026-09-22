@@ -229,7 +229,16 @@ root.addEventListener("click", (event) => {
 
 root.addEventListener("change", (event) => {
   const input = event.target.closest("[data-change]");
-  if (input) CHANGES[input.dataset.change]?.(input);
+  if (input) CHANGES[input.dataset.change]?.(input, "change");
+});
+
+// Текстовые поля отдают значение на каждый ввод (KAN-524): на iOS тап по кнопке не
+// снимает фокус с поля, `change` не успевает — «Найти» уходил с пустым запросом.
+// Дата/время/галочки остаются на `change`: у них input стреляет при прокрутке колеса.
+const TEXTUAL = 'textarea, input:not([type]), input[type="text"], input[type="number"], input[type="tel"], input[type="search"], input[type="email"]';
+root.addEventListener("input", (event) => {
+  const input = event.target.closest?.("[data-change]");
+  if (input?.matches?.(TEXTUAL)) CHANGES[input.dataset.change]?.(input, "input");
 });
 
 // Ссылки из бота (KAN-494): ?tab=<ключ экрана> открывает вкладку; остальные параметры

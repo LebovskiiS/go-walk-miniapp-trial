@@ -6,7 +6,9 @@ import { esc, fmtWhen, haptic, registerActions, registerChanges, registerScreen,
 import { kv, listState, notice, who } from "../kit.js";
 
 const collars = { items: [], loading: false, error: null, busy: false, notice: null, form: null, phoneFor: null };
-const draft = { device_id: "", walker_user_id: "", phone: "" };
+// walker: выбранный ситтер {id, name}; found — результаты поиска по имени (как в боте:
+// id руками не вводят, выбирают из найденных)
+const draft = { device_id: "", walker: null, q: "", found: [], searching: false, phone: "" };
 
 async function load() {
   collars.loading = true;
@@ -42,11 +44,18 @@ function view() {
       </div>`,
     )
     .join("");
+  const picked = draft.walker
+    ? `<div class="notice ok">Ситтер: ${esc(who(draft.walker.name, draft.walker.id))} <button class="chip small" data-act="collar-walker-clear">сменить</button></div>`
+    : `<div class="row gap"><input class="input grow" data-change="collar-q" value="${esc(draft.q)}" placeholder="Имя, телефон или email ситтера" enterkeyhint="search">
+        <button class="btn" data-act="collar-search" ${draft.searching ? "disabled" : ""}>Найти</button></div>
+       <div class="chips tight">${draft.found
+         .map((u) => `<button class="chip small" data-act="collar-walker-pick" data-id="${esc(u.id)}" data-name="${esc(u.name)}">${esc(who(u.name, u.id))}</button>`)
+         .join("")}</div>`;
   const form = collars.form
     ? `<div class="card stack"><b>Привязать трекер</b>
         <div class="field"><span class="field-label">Id устройства (IMEI / серийный)</span><input class="input" data-change="collar-device" value="${esc(draft.device_id)}"></div>
-        <div class="field"><span class="field-label">Id ситтера (из карточки в «Люди»)</span><input class="input" data-change="collar-walker" value="${esc(draft.walker_user_id)}"></div>
-        <div class="row gap"><button class="btn" data-act="collar-assign" ${off}>Привязать</button>
+        <div class="field"><span class="field-label">Ситтер</span>${picked}</div>
+        <div class="row gap"><button class="btn" data-act="collar-assign" ${off || !draft.walker ? "disabled" : ""}>Привязать</button>
           <button class="btn ghost" data-act="collar-form-close" ${off}>Отмена</button></div></div>`
     : `<button class="btn ghost wide" data-act="collar-form-open">➕ Привязать трекер</button>`;
   return `<section class="list"><h2>Трекеры</h2>${notice(collars.notice)}${form}${rows}</section>`;
@@ -75,8 +84,8 @@ registerChanges({
   "collar-device": (input) => {
     draft.device_id = input.value.trim();
   },
-  "collar-walker": (input) => {
-    draft.walker_user_id = input.value.trim();
+  "collar-q": (input) => {
+    draft.q = input.value.trim();
   },
   "collar-phone": (input) => {
     draft.phone = input.value.trim();
@@ -90,11 +99,32 @@ registerActions({
   "collar-form-close": () => {
     collars.form = null;
   },
+  "collar-search": async () => {
+    draft.searching = true;
+    render();
+    try {
+      draft.found = draft.q ? await api("GET", `/admin/users?limit=20&q=${encodeURIComponent(draft.q)}`) : [];
+      if (!draft.found.length) collars.notice = { kind: "error", text: "Никого не нашли." };
+    } catch (err) {
+      collars.notice = { kind: "error", text: err.message };
+    }
+    draft.searching = false;
+    render();
+  },
+  "collar-walker-pick": ({ id, name }) => {
+    draft.walker = { id, name };
+    draft.found = [];
+    collars.notice = null;
+  },
+  "collar-walker-clear": () => {
+    draft.walker = null;
+  },
   "collar-assign": () =>
     act(async () => {
-      if (!draft.device_id || !draft.walker_user_id) throw new Error("Нужны id устройства и id ситтера.");
-      await api("POST", "/admin/collars", { device_id: draft.device_id, walker_user_id: draft.walker_user_id });
-      draft.device_id = draft.walker_user_id = "";
+      if (!draft.device_id || !draft.walker) throw new Error("Нужны id устройства и ситтер.");
+      await api("POST", "/admin/collars", { device_id: draft.device_id, walker_user_id: draft.walker.id });
+      draft.device_id = "";
+      draft.walker = null;
       collars.form = null;
     }, "Трекер привязан"),
   "collar-unassign": ({ id }) => act(() => api("DELETE", `/admin/collars/${encodeURIComponent(id)}`), "Привязка снята"),
